@@ -46,7 +46,15 @@
         out.status = r.status; out.statusText = r.statusText; out.url = r.url; out.headers = h; out.buf = buf;
         send(src, out, [buf]);
       });
-    }).catch(function (e) { out.error = String(e && e.message || e); send(src, out); });
+    }).catch(function (e) {
+      // A server rejection (e.g. 403) arrives without CORS headers, so the browser reports it as
+      // "Failed to fetch". An opaque no-cors probe tells a rejection apart from a real network failure.
+      var msg = String(e && e.message || e);
+      fetch(url, { method: "GET", mode: "no-cors", credentials: "omit", cache: "no-store" }).then(function () {
+        out.status = 403; out.statusText = "Refused by server (" + msg + ")"; out.url = url; out.headers = []; out.buf = new ArrayBuffer(0);
+        send(src, out);
+      }).catch(function () { out.error = "Network error: " + msg; send(src, out); });
+    });
   });
 
   function hello() {

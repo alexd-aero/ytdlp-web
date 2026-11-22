@@ -3,6 +3,7 @@ import { Bridge } from "./bridge.js";
 import { Engine } from "./engine.js";
 import { runJob, hasVideo, hasAudio } from "./pipeline.js";
 import { DEFAULTS } from "./options.js";
+import { setRetryLogger } from "./download.js";
 
 // ------------------------------------------------------------------ helpers
 const $ = (s) => document.querySelector(s);
@@ -111,6 +112,7 @@ function log(text, cls = "") {
     logEl.scrollTop = logEl.scrollHeight;
   }
 }
+setRetryLogger((m) => log(`! ${m}`, "w"));
 engine.addEventListener("log", (e) => {
   const { level, msg } = e.detail;
   if (level === "debug") return;
@@ -497,9 +499,9 @@ async function start() {
   const opts = buildOptions();
   log(`$ yt-dlp ${state.kind === "audio" ? "-x " : ""}[${qualityLabel()}] "${state.url}"`, "s");
   const warns = [];
-  const reextract = async () => {
-    onStep("Refreshing stream links");
-    const o = {};
+  const reextract = async (client = "") => {
+    onStep(client ? `Getting links from the ${client} client` : "Refreshing stream links");
+    const o = { player_client: client };
     if (bridge.mobileSite && bridge.visitorData) o.visitor_data = bridge.visitorData;
     const res = await engine.probe(state.url, o);
     if (!res.ok) throw new Error(res.error);
@@ -509,13 +511,18 @@ async function start() {
   const attempt = () => { prog.downloads = 0; return runJob({ engine, bridge, video: state.video, options: opts, signal: state.ctrl.signal, onStep, onProgress, onLog: (m) => { if (/^\[(select|sponsorblock|thumb)\]/.test(m)) log(m, "d"); }, onWarn: (w) => { warns.push(w); log(`! ${w}`, "w"); } }); };
   try {
     if (!state.video._probedAt || Date.now() - state.video._probedAt > 45000) await reextract();
+    // If YouTube refuses the stream links (403, or a rejection the browser reports as
+    // "Failed to fetch"), get fresh links, then try other YouTube clients.
+    const fallbacks = ["", "android_vr", "visionos"];
     let outs;
-    try { outs = await attempt(); }
-    catch (e) {
-      if (!/HTTP 403/.test(e.message) || state.ctrl.signal.aborted) throw e;
-      log("! YouTube refused the stream link; fetching fresh links and retrying", "w");
-      await reextract();
-      outs = await attempt();
+    for (let i = 0; ; i++) {
+      try { outs = await attempt(); break; }
+      catch (e) {
+        if (!/HTTP 403|Refused by server/.test(e.message) || state.ctrl.signal.aborted) throw e;
+        if (i >= fallbacks.length) throw new Error(`${e.message}\nYouTube refused every stream link it gave this device. On mobile data or a VPN? Try Wi-Fi or turn the VPN off.`);
+        log(`! YouTube refused the stream; ${i === 0 ? "fetching fresh links" : `trying the ${fallbacks[i]} client`}`, "w");
+        await reextract(fallbacks[i]);
+      }
     }
     setTarget(1);
     setPhase(3, "Ready");
@@ -564,7 +571,15 @@ function renderDone() {
 function renderError() {
   $("#steps").hidden = true;
   const msg = (state.error || "Something went wrong").replace(/^ERROR: /, "");
-  view(h("div", { class: "notice" }, fa("triangle-exclamation"), h("div", {}, h("b", {}, "Download failed"), h("code", {}, msg.split("\n").slice(0, 4).join("\n")))),
+  logEl = h("div", { class: "log", style: "margin-top:10px;height:150px" });
+  logLines.slice(-120).forEach(([t, c]) => logEl.append(h("div", { class: c }, t)));
+  const copyBtn = h("button", { class: "back", style: "margin:8px 0 0", onclick: async () => {
+    const text = `ytdlp ${location.origin}${location.pathname} | ${navigator.userAgent}\nbridge: ${bridge.host}\n\n` + logLines.map(([t]) => t).join("\n");
+    try { await navigator.clipboard.writeText(text); copyBtn.replaceChildren(fa("check"), " Copied"); }
+    catch { copyBtn.replaceChildren(fa("xmark"), " Clipboard blocked"); }
+  } }, fa("copy"), " Copy log");
+  view(h("div", { class: "notice" }, fa("triangle-exclamation"), h("div", {}, h("b", {}, "Download failed"), h("code", { style: "white-space:pre-wrap" }, msg.split("\n").slice(0, 5).join("\n")))),
+    logEl, copyBtn,
     h("div", { class: "actions" },
       h("button", { class: "btn ghost", onclick: () => go("confirm") }, fa("arrow-left"), "Back"),
       h("button", { class: "btn primary", onclick: start }, fa("rotate-right"), "Try again")));

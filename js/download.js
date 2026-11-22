@@ -4,7 +4,12 @@
 
 const CHUNK = 10 * 1024 * 1024;     // same as yt-dlp's http_chunk_size for YouTube
 const PARALLEL = 3;
-const RETRIES = 5;
+const RETRIES = 4;
+const REQUEST_TIMEOUT = 60000;
+
+// Optional hook so the UI can show retries instead of looking frozen.
+let retryLogger = null;
+export function setRetryLogger(fn) { retryLogger = fn; }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isGoogleVideo = (u) => /^https:\/\/[^/]+\.googlevideo\.com\//.test(u);
@@ -23,12 +28,14 @@ async function fetchRetry(bridge, req, signal, label) {
   let lastErr;
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
-    const res = await bridge.fetch(req, { timeout: 180000 });
+    const res = await bridge.fetch(req, { timeout: REQUEST_TIMEOUT });
     if (!res.error && res.status >= 200 && res.status < 300) return res;
     lastErr = res.error || `HTTP ${res.status} ${res.statusText || ""}`.trim();
-    // 403 on googlevideo usually means the URL expired or needs a PO token; retrying won't help much.
-    if (res.status === 403 && attempt >= 1) break;
-    if (res.status === 404 || res.status === 410) break;
+    // 403 on googlevideo usually means the URL expired, is bound to another IP, or needs a PO token:
+    // one retry, then give up so the caller can re-extract fresh links.
+    const giveUp = (res.status === 403 && attempt >= 1) || res.status === 404 || res.status === 410 || attempt === RETRIES - 1;
+    if (retryLogger) retryLogger(`${label}: ${lastErr}${giveUp ? "" : `, retrying (${attempt + 2}/${RETRIES})`}`);
+    if (giveUp) break;
     await sleep(800 * 2 ** attempt);
   }
   throw new Error(`${label}: ${lastErr}`);
