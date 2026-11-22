@@ -5,11 +5,11 @@
 // googlevideo intermittently refuses large ranges requested from a browser (seen live: 1 MB
 // requests kept working while 4 MB+ were refused). Request small pieces in parallel like
 // YouTube's own player does.
-const CHUNK_GV = 1024 * 1024;
-const PARALLEL_GV = 6;
+const CHUNK_GV = 2 * 1024 * 1024;
+const PARALLEL_GV = 4;
 const CHUNK = 10 * 1024 * 1024;     // other hosts
 const PARALLEL = 3;
-const RETRIES = 4;
+const RETRIES = 5;
 const REQUEST_TIMEOUT = 60000;
 
 // Optional hook so the UI can show retries instead of looking frozen.
@@ -36,12 +36,12 @@ async function fetchRetry(bridge, req, signal, label) {
     const res = await bridge.fetch(req, { timeout: REQUEST_TIMEOUT });
     if (!res.error && res.status >= 200 && res.status < 300) return res;
     lastErr = res.error || `HTTP ${res.status} ${res.statusText || ""}`.trim();
-    // 403 on googlevideo usually means the URL expired, is bound to another IP, or needs a PO token:
-    // one retry, then give up so the caller can re-extract fresh links.
-    const giveUp = (res.status === 403 && attempt >= 1) || res.status === 404 || res.status === 410 || attempt === RETRIES - 1;
+    // googlevideo refuses requests transiently (403, often hidden as "Failed to fetch"); the same
+    // range usually succeeds moments later, so retry patiently before the caller re-extracts links.
+    const giveUp = res.status === 404 || res.status === 410 || attempt === RETRIES - 1;
     if (retryLogger) retryLogger(`${label}: ${lastErr}${giveUp ? "" : `, retrying (${attempt + 2}/${RETRIES})`}`);
     if (giveUp) break;
-    await sleep(800 * 2 ** attempt);
+    await sleep(1000 * 2 ** attempt + Math.random() * 400);
   }
   throw new Error(`${label}: ${lastErr}`);
 }
