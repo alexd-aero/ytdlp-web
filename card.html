@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>ytdlp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="css/card.css">
+</head>
+<body>
+<main class="card" id="card">
+  <header class="top">
+    <div class="brand"><span class="mark"><i class="fa-solid fa-bolt"></i></span>ytdlp</div>
+    <span class="engine" id="engine"><i class="fa-solid fa-circle-notch fa-spin"></i><span>Warming up</span></span>
+    <button class="icon-btn" id="btnClose" title="Close (Esc)" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+  </header>
+
+  <!-- Video being downloaded -->
+  <section class="video" id="video" hidden>
+    <div class="thumb"><img id="vThumb" alt="" referrerpolicy="no-referrer"><span class="dur" id="vDur"></span></div>
+    <div class="vmeta">
+      <div class="vtitle" id="vTitle"></div>
+      <div class="vsub" id="vSub"></div>
+    </div>
+  </section>
+
+  <!-- URL entry (only when opened outside a YouTube watch page) -->
+  <section class="urlbox" id="urlBox" hidden>
+    <form id="urlForm" class="urlform">
+      <i class="fa-brands fa-youtube"></i>
+      <input id="urlInput" type="url" inputmode="url" spellcheck="false" placeholder="Paste a YouTube link">
+      <button type="submit" class="go" aria-label="Load"><i class="fa-solid fa-arrow-right"></i></button>
+    </form>
+  </section>
+
+  <div class="steps" id="steps" hidden>
+    <span data-s="type"></span><span data-s="quality"></span><span data-s="extras"></span><span data-s="confirm"></span>
+  </div>
+
+  <section class="view" id="view"></section>
+
+  <footer class="foot"><i class="fa-solid fa-lock"></i> Runs entirely in your browser · nothing is uploaded</footer>
+</main>
+<script type="module" src="js/card.js"></script>
+</body>
+</html>
