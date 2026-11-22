@@ -16,11 +16,15 @@ export async function bookmarkletFor(cardUrl) {
   const inline = await (await fetch(injectUrl)).text();
   // Strip whole-line comments only (never touch "//" inside strings), then collapse whitespace.
   const fallback = inline.replace(/^\s*\/\/.*$/gm, "").replace(/\s*\n\s*/g, "\n").trim();
+  // YouTube's CSP blocks <script src> from other origins, but allows fetch + eval (it lists
+  // 'unsafe-eval'; a Trusted Types policy satisfies require-trusted-types-for). So the loader
+  // fetches the latest bridge from this site and runs it; on any failure it runs the inlined copy.
   const loader = `(function(){var A=${JSON.stringify(cardUrl)};window.__ytdlpAppUrl=A;` +
     `if(window.__ytdlpWeb&&window.__ytdlpWeb.app===A){window.__ytdlpWeb.open();return;}` +
-    `var u=${JSON.stringify(injectUrl)}+"?v="+Date.now(),s=document.createElement("script");` +
-    `try{var p=window.trustedTypes&&trustedTypes.createPolicy("ytdlp-loader",{createScriptURL:function(x){return x;}});s.src=p?p.createScriptURL(u):u;}catch(e){s.src=u;}` +
-    `s.onerror=function(){${fallback}};document.documentElement.appendChild(s);})()`;
+    `function F(){${fallback}}` +
+    `var P;try{P=window.trustedTypes&&trustedTypes.createPolicy("ytdlp-loader-"+Date.now(),{createScript:function(x){return x;}});}catch(e){}` +
+    `fetch(${JSON.stringify(injectUrl)}+"?v="+Date.now(),{cache:"no-store",credentials:"omit"}).then(function(r){if(!r.ok)throw 0;return r.text();})` +
+    `.then(function(t){(0,eval)(P?P.createScript(t):t);if(!window.__ytdlpWeb)F();}).catch(function(){if(!window.__ytdlpWeb)F();});})()`;
   return "javascript:" + encodeURIComponent(`void ${loader}`);
 }
 

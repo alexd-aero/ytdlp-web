@@ -2,7 +2,12 @@
 // Supports: progressive/DASH https (chunked, parallel, resumable per chunk),
 // fragmented DASH (fragments list) and plain HLS (m3u8 / m3u8_native).
 
-const CHUNK = 10 * 1024 * 1024;     // same as yt-dlp's http_chunk_size for YouTube
+// googlevideo intermittently refuses large ranges requested from a browser (seen live: 1 MB
+// requests kept working while 4 MB+ were refused). Request small pieces in parallel like
+// YouTube's own player does.
+const CHUNK_GV = 1024 * 1024;
+const PARALLEL_GV = 6;
+const CHUNK = 10 * 1024 * 1024;     // other hosts
 const PARALLEL = 3;
 const RETRIES = 4;
 const REQUEST_TIMEOUT = 60000;
@@ -67,7 +72,8 @@ async function downloadRanged(bridge, fmt, { onBytes, signal }) {
 
   if (total) {
     const ranges = [];
-    for (let s = 0; s < total; s += CHUNK) ranges.push([s, Math.min(s + CHUNK, total) - 1]);
+    const chunk = gv ? CHUNK_GV : CHUNK;
+    for (let s = 0; s < total; s += chunk) ranges.push([s, Math.min(s + chunk, total) - 1]);
     const parts = new Array(ranges.length);
     let next = 0;
     const worker = async () => {
@@ -87,7 +93,7 @@ async function downloadRanged(bridge, fmt, { onBytes, signal }) {
         onBytes(res.buf.byteLength, total);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(PARALLEL, ranges.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(gv ? PARALLEL_GV : PARALLEL, ranges.length) }, worker));
     return parts.filter(Boolean);
   }
 
@@ -95,10 +101,11 @@ async function downloadRanged(bridge, fmt, { onBytes, signal }) {
   const parts = [];
   let start = 0;
   for (;;) {
-    const res = await getRange(start, start + CHUNK - 1);
+    const chunk = gv ? CHUNK_GV : CHUNK;
+    const res = await getRange(start, start + chunk - 1);
     parts.push(res.buf);
     onBytes(res.buf.byteLength, null);
-    if (res.buf.byteLength < CHUNK || (!gv && res.status === 200)) break;
+    if (res.buf.byteLength < chunk || (!gv && res.status === 200)) break;
     start += res.buf.byteLength;
   }
   return parts;
