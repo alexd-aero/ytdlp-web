@@ -264,7 +264,7 @@ function setSteps() {
 function view(...kids) {
   const v = $("#view");
   v.classList.remove("swap"); void v.offsetWidth; // restart the enter animation
-  v.replaceChildren(...kids);
+  v.replaceChildren(...kids.filter((k) => k != null && k !== false));
 }
 const back = (to) => h("button", { class: "back", onclick: () => go(to) }, fa("arrow-left"), "Back");
 
