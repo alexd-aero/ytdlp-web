@@ -57,10 +57,11 @@ const state = {
   thumb: prefs.thumb ?? true, square: prefs.square ?? true, meta: prefs.meta ?? true,
   chapters: prefs.chapters ?? true, subs: prefs.subs ?? false, sponsor: prefs.sponsor ?? false,
   ctrl: null, result: null, error: null,
+  tipDismissed: prefs.tipDismissed ?? false,
 };
 const savePrefs = () => {
-  const { kind, container, aFormat, aChoice, thumb, square, meta, chapters, subs, sponsor } = state;
-  try { localStorage.setItem(PREF_KEY, JSON.stringify({ kind, container, aFormat, aChoice, thumb, square, meta, chapters, subs, sponsor })); } catch {}
+  const { kind, container, aFormat, aChoice, thumb, square, meta, chapters, subs, sponsor, tipDismissed } = state;
+  try { localStorage.setItem(PREF_KEY, JSON.stringify({ kind, container, aFormat, aChoice, thumb, square, meta, chapters, subs, sponsor, tipDismissed })); } catch {}
 };
 
 const inFrame = window.parent !== window;
@@ -267,8 +268,16 @@ function view(...kids) {
 }
 const back = (to) => h("button", { class: "back", onclick: () => go(to) }, fa("arrow-left"), "Back");
 
+// yt-dlp's Python needs WebAssembly JSPI to wait on network requests.
+const JSPI = typeof WebAssembly === "object" && (typeof WebAssembly.Suspending === "function" || typeof WebAssembly.Function === "function");
+
 function render() {
   setSteps();
+  if (!JSPI) {
+    setEngine("bad", fa("triangle-exclamation"), "Not supported");
+    return renderNotice("This browser can't run yt-dlp yet",
+      "It needs WebAssembly JSPI: current Chrome, Edge, Brave or Opera, Firefox 153+, or a recent Safari. Update your browser, or try Edge or Firefox.");
+  }
   if (!state.url) {
     if (!bridge.connected && !inFrame) {
       return renderNotice("Open this from YouTube", "Go to a YouTube video and tap your ytdlp bookmark. It opens right there, no new tabs.", true);
@@ -298,7 +307,23 @@ function renderType() {
       h("button", { class: "choice alt", onclick: () => pick("audio") },
         h("div", { class: "ic" }, fa("music")), h("div", { class: "ct" }, "Audio"),
         h("div", { class: "cs" }, "MP3 · M4A · Opus · FLAC · WAV"))),
+    addonTip(),
   );
+}
+
+// Opened from the bookmark: suggest the extension / userscript, which adds a native Download button.
+function addonTip() {
+  if (bridge.via !== "bookmark" || state.tipDismissed) return null;
+  const mobile = bridge.mobileSite;
+  const tip = h("div", { class: "tip" },
+    h("div", { class: "tip-ic" }, fa(mobile ? "mobile-screen-button" : "puzzle-piece")),
+    h("div", { class: "tip-tx" },
+      h("b", {}, mobile ? "Skip the bookmark" : "Get a Download button on YouTube"),
+      mobile ? "Install the userscript once and a download icon appears next to Dislike on every video."
+             : "Install the extension and a Download button appears next to Like on every video."),
+    h("a", { class: "tip-go", href: new URL(`./#${mobile ? "android" : "desktop"}`, location.href).href, target: "_blank", rel: "noopener" }, "Install"),
+    h("button", { class: "tip-x", "aria-label": "Dismiss", onclick: () => { state.tipDismissed = true; savePrefs(); tip.remove(); } }, fa("xmark")));
+  return tip;
 }
 
 function renderQuality() {

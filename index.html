@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
-<meta name="description" content="Download YouTube video and audio right on YouTube. Real yt-dlp and FFmpeg running in your browser.">
+<meta name="description" content="A Download button right on YouTube. Real yt-dlp and FFmpeg running in your browser.">
 <title>ytdlp</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2300ff88'/%3E%3Cstop offset='1' stop-color='%232ee6ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Cpath d='M18 5 9 18h6l-2 9 10-14h-6z' fill='%2300140b'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -26,22 +26,25 @@
   <section class="hero">
     <div class="eyebrow"><i class="fa-solid fa-microchip"></i> yt-dlp + FFmpeg · WebAssembly</div>
     <h1>Download from YouTube,<br><span class="grad">right on YouTube.</span></h1>
-    <p class="lead">Tap one bookmark on any video and a floating card asks what you want, then downloads it. No app, server or extension involved.</p>
+    <p class="lead">A Download button that sits next to Like on every video. Tap it, pick what you want in the floating card, and the file is built on your own device.</p>
 
-    <div class="install">
-      <a class="bookmark" id="bookmarklet" href="#" title="Drag me to your bookmarks bar"><i class="fa-solid fa-bolt"></i> ytdlp</a>
-      <div class="install-hint" id="installHint"><i class="fa-solid fa-arrow-up"></i> Drag this to your bookmarks bar</div>
+    <div class="yt-demo" aria-hidden="true">
+      <span class="yt-pill dl"><i class="fa-solid fa-download"></i> Download</span>
+      <span class="yt-pill seg"><span><i class="fa-regular fa-thumbs-up"></i> 110K</span><span><i class="fa-regular fa-thumbs-down"></i></span></span>
+      <span class="yt-pill"><i class="fa-solid fa-share"></i> Share</span>
+      <span class="yt-pill ic"><i class="fa-solid fa-ellipsis"></i></span>
     </div>
+
+    <a class="cta" id="cta" href="#get"><i class="fa-solid fa-bolt"></i> <span>Get the button</span></a>
   </section>
 
-  <section class="panel glass">
+  <section class="panel glass" id="get">
     <div class="tabs" role="tablist" id="platformTabs">
-      <button role="tab" data-p="desktop"><i class="fa-solid fa-desktop"></i> Desktop</button>
-      <button role="tab" data-p="android"><i class="fa-brands fa-android"></i> Android</button>
-      <button role="tab" data-p="ios"><i class="fa-brands fa-apple"></i> iPhone</button>
+      <button role="tab" data-p="desktop"><i class="fa-solid fa-desktop"></i> <span>Desktop</span></button>
+      <button role="tab" data-p="android"><i class="fa-brands fa-android"></i> <span>Android</span></button>
+      <button role="tab" data-p="ios"><i class="fa-brands fa-apple"></i> <span>iPhone</span></button>
     </div>
-    <ol class="steps" id="steps"></ol>
-    <button class="copy" id="btnCopy"><i class="fa-regular fa-copy"></i> <span>Copy bookmark code</span></button>
+    <div id="methods"></div>
   </section>
 
   <section class="features">
@@ -53,7 +56,7 @@
   <section class="how">
     <h2>How it works</h2>
     <div class="how-grid">
-      <div><span class="n">1</span><b>You tap the bookmark</b><p>It runs a tiny helper on the YouTube page you're on and opens the floating card.</p></div>
+      <div><span class="n">1</span><b>You tap Download</b><p>The add-on (or the bookmark) runs a tiny helper on the YouTube page and opens the floating card.</p></div>
       <div><span class="n">2</span><b>yt-dlp runs in the card</b><p>The real yt-dlp (Python, compiled to WebAssembly) finds every stream. The helper fetches them as YouTube.</p></div>
       <div><span class="n">3</span><b>FFmpeg builds your file</b><p>Merging, converting, cover art and metadata all happen in your browser. Then tap Download now.</p></div>
     </div>

@@ -4,18 +4,21 @@
 
 ## How it works
 
-1. **Get the bookmark** from the landing page (`index.html`). It's a tiny loader.
-2. **Tap it on any YouTube video.** The loader pulls `js/bridge-inject.js` from wherever this
-   site is hosted (your GitHub Pages), so you can update the bridge any time without anyone
-   re-saving their bookmark. If that load is ever blocked, the bookmark runs an inlined copy.
-3. **The bridge floats the card** (`card.html`, an iframe) over the YouTube page as a dark glass
-   card. On phones it docks as a bottom sheet in the same tab, so nothing is frozen in the background.
+1. **Install the Download button** from the landing page (`index.html`):
+   * **Desktop:** the Chrome extension (`addon/ytdlp-extension.zip`, load unpacked). It works in Chrome, Edge, Brave, Opera and Vivaldi.
+   * **Android / iPhone / any browser with a userscript manager:** the userscript (`addon/ytdlp.user.js`). Use Edge or Firefox with Tampermonkey or Violentmonkey on Android, or the Userscripts app with Safari on iOS. It updates itself from this site.
+   * **No install:** the bookmark, a tiny loader that fetches `js/bridge-inject.js` from this site.
+2. **A native-looking Download button appears.** On desktop it sits left of Like (on Shorts, left of Create). On mobile it's an icon next to Dislike. It's a clone of one of YouTube's own buttons, so it always matches YouTube's current style.
+3. **Tapping it floats the card** (`card.html`, an iframe) over the YouTube page. On phones it docks as a bottom sheet.
 4. **The card asks:** Video or audio → quality (YouTube's real streams, max first) → extras
    (thumbnail, metadata, chapters, subtitles, SponsorBlock) → review → confirm.
 5. **yt-dlp runs in the card** (CPython/WebAssembly). Every HTTP request is sent to the bridge,
    which performs it *as youtube.com*, the only origin YouTube's servers answer. FFmpeg.wasm
    then merges, converts and embeds, with a live log and progress bar.
 6. **Download now** saves the finished file, which is already in memory, instantly.
+
+The extension and the userscript run the same bridge as the bookmark, in YouTube's own page context
+(the extension uses a `"world": "MAIN"` content script), and need no extension permissions.
 
 ```
  youtube.com tab
@@ -56,12 +59,15 @@ The format selection, sorting, output templates and YouTube extraction are yt-dl
 
 Any static host works. No special headers are required: the single-threaded FFmpeg core is used on purpose, since cross-origin isolation (COOP/COEP) would cut the window link to the bridge tab.
 
-**Don't deploy `tools/`.** It's a local development helper (see below). Deleting it is fine.
+**Don't deploy `tools/devserver.py`.** It's a local development helper (see below).
+
+If you host the site somewhere else, rebuild the add-ons so they point at your URL:
+`python tools/build-addons.py https://you.github.io/your-repo/`
 
 ## Requirements
 
 * A browser with WebAssembly **JSPI** (lets synchronous Python wait on async fetches): current Chrome, Edge or Opera, and recent Firefox.
-* Desktop is recommended. Bookmarklets work on Android Chrome (type the bookmark's name into the address bar and tap it) but are awkward on iOS.
+* Mobile: Edge or Firefox for Android with a userscript manager, or Safari with the Userscripts app (needs a Safari version with JSPI). Chrome for Android can only use the bookmark.
 * Files are assembled in memory: practical limit ≈ 1.5–2 GB per output.
 
 ## Known limits
@@ -82,6 +88,8 @@ css/card.css          card styles (dark glass, glowing border)
 js/app.js             landing logic (builds the bookmark)
 js/card.js            card wizard: type → quality → extras → confirm → progress → download
 js/bridge-inject.js   runs on youtube.com: floats the card, performs fetches
+js/ytbutton.js        runs on youtube.com: the native-looking Download button (add-ons only)
+addon/                built add-ons: ytdlp.user.js, extension/, ytdlp-extension.zip
 js/bridge.js          bookmark loader builder + card-side bridge client
 js/engine.js          main-thread handle on the yt-dlp worker
 js/engine-worker.js   Pyodide worker: installs yt-dlp, routes network to the bridge
@@ -92,6 +100,7 @@ js/options.js         option model → yt-dlp format spec / sort
 vendor/py/            yt-dlp + yt-dlp-ejs wheels
 vendor/ffmpeg/        ffmpeg.wasm 0.12 (single-thread core)
 tools/devserver.py    DEV ONLY: local server + stand-in bridge for automated testing
+tools/build-addons.py builds addon/ from bridge-inject.js + ytbutton.js (run after editing them)
 ```
 
 Pyodide 314.0.8 is loaded from the jsDelivr CDN.

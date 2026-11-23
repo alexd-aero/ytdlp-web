@@ -93,6 +93,7 @@ export class Bridge extends EventTarget {
       // Read from the YouTube page itself: lets yt-dlp skip the watch page (needed on m.youtube.com).
       this.visitorData = typeof d.vd === "string" ? d.vd : null;
       this.playerId = typeof d.pid === "string" && /^[0-9a-fA-F]{8}$/.test(d.pid) ? d.pid : null;
+      this.via = typeof d.via === "string" ? d.via : "bookmark";
       this.lastHello = Date.now();
       ev.source.postMessage({ __ytdlp: BRIDGE_VERSION, t: "ack" }, ev.origin);
       if (!wasConnected) this.dispatchEvent(new CustomEvent("status", { detail: { connected: true, host: d.host, page: this.page } }));

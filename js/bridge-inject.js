@@ -8,6 +8,8 @@
   if (W.__ytdlpWeb && W.__ytdlpWeb.app === APP_URL) { W.__ytdlpWeb.open(); return; }
   var ALLOW = /^https:\/\/(?:[a-z0-9-]+\.)*(?:youtube\.com|googlevideo\.com|ytimg\.com|ggpht\.com|youtube-nocookie\.com|googleusercontent\.com|googleapis\.com)(?::\d+)?\//i;
   var st = { frame: null, timer: null, h: 360, pos: null };
+  // How this bridge was loaded: "bookmark" (default), "extension" or "userscript".
+  var VIA = W.__ytdlpVia || "bookmark";
 
   function send(target, msg, transfer) {
     try { target.postMessage(msg, APP, transfer || []); } catch (e) { /* closed */ }
@@ -60,7 +62,7 @@
   function hello() {
     if (!st.frame || !st.frame.contentWindow) return;
     var pid = (String(cfg("PLAYER_JS_URL") || "").match(/player\/([0-9a-fA-F]{8})\//) || [])[1] || null;
-    send(st.frame.contentWindow, { __ytdlp: VER, t: "hello", host: location.host, page: location.href, vd: cfg("VISITOR_DATA"), pid: pid });
+    send(st.frame.contentWindow, { __ytdlp: VER, t: "hello", host: location.host, page: location.href, vd: cfg("VISITOR_DATA"), pid: pid, via: VIA });
   }
 
   function place() {
@@ -112,8 +114,9 @@
     setTimeout(function () { if (st.frame && st.frame.style.opacity === "0") st.frame.style.display = "none"; }, 350);
   }
 
-  W.__ytdlpWeb = { app: APP_URL, open: open };
-  open();
+  W.__ytdlpWeb = { app: APP_URL, open: open, hide: hide };
+  // The extension / userscript wait for their Download button instead of opening right away.
+  if (!W.__ytdlpNoAutoOpen) open();
 })(
   window.__ytdlpAppUrl || new URL("../card.html", (document.currentScript && document.currentScript.src) || location.href).href,
   1

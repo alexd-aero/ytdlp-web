@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "ytdlp - Download button for YouTube",
+  "short_name": "ytdlp",
+  "version": "1.0.0",
+  "description": "Adds a Download button to YouTube that opens ytdlp: real yt-dlp + FFmpeg running in your browser.",
+  "homepage_url": "https://alexd-aero.github.io/ytdlp-web/",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*"
+      ],
+      "js": [
+        "config.js",
+        "bridge-inject.js",
+        "ytbutton.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
