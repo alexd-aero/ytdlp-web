@@ -2,15 +2,20 @@
 // Supports: progressive/DASH https (chunked, parallel, resumable per chunk),
 // fragmented DASH (fragments list) and plain HLS (m3u8 / m3u8_native).
 
-// googlevideo intermittently refuses large ranges requested from a browser (seen live: 1 MB
-// requests kept working while 4 MB+ were refused). Request small pieces in parallel like
-// YouTube's own player does.
+// Request googlevideo in small pieces in parallel, like YouTube's own player does.
 const CHUNK_GV = 2 * 1024 * 1024;
 const PARALLEL_GV = 4;
 const CHUNK = 10 * 1024 * 1024;     // other hosts
 const PARALLEL = 3;
 const RETRIES = 5;
 const REQUEST_TIMEOUT = 60000;
+// googlevideo cache nodes (often inside the ISP) answer a range they don't hold with a 302 to
+// another googlevideo server. A cross-origin redirect makes the browser send `Origin: null`,
+// googlevideo sends no CORS header back, and fetch() fails with "Failed to fetch" (which the
+// bridge reports as a 403). With `alr=yes` googlevideo returns that redirect as a 200 text/plain
+// body holding the next URL, with CORS headers, which is how YouTube's player asks for it. So
+// every videoplayback request carries alr=yes and we follow those hops ourselves.
+const MAX_GV_HOPS = 5;
 
 // Optional hook so the UI can show retries instead of looking frozen.
 let retryLogger = null;
@@ -18,6 +23,10 @@ export function setRetryLogger(fn) { retryLogger = fn; }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isGoogleVideo = (u) => /^https:\/\/[^/]+\.googlevideo\.com\//.test(u);
+// Only query-style links (/videoplayback?…) take alr=yes; path-style HLS segment links are left alone.
+const isQueryVideoplayback = (u) => /^https:\/\/[^/]+\.googlevideo\.com\/videoplayback\?/.test(u);
+const withAlr = (u) => (/[?&]alr=yes(?:&|$)/.test(u) ? u : `${u}&alr=yes`);
+const headerOf = (res, name) => ((res.headers || []).find(([k]) => k.toLowerCase() === name) || [])[1] || "";
 
 function cleanHeaders(h = {}) {
   const out = {};
@@ -36,14 +45,28 @@ async function fetchRetry(bridge, req, signal, label) {
     const res = await bridge.fetch(req, { timeout: REQUEST_TIMEOUT });
     if (!res.error && res.status >= 200 && res.status < 300) return res;
     lastErr = res.error || `HTTP ${res.status} ${res.statusText || ""}`.trim();
-    // googlevideo refuses requests transiently (403, often hidden as "Failed to fetch"); the same
-    // range usually succeeds moments later, so retry patiently before the caller re-extracts links.
-    const giveUp = res.status === 404 || res.status === 410 || attempt === RETRIES - 1;
+    // A real 403 (expired link, missing PO token) won't fix itself: retry once, then let the caller
+    // fetch fresh links or try another client. Network errors and 5xx get the full retries.
+    const giveUp = res.status === 404 || res.status === 410 || (res.status === 403 && attempt >= 1) || attempt === RETRIES - 1;
     if (retryLogger) retryLogger(`${label}: ${lastErr}${giveUp ? "" : `, retrying (${attempt + 2}/${RETRIES})`}`);
     if (giveUp) break;
     await sleep(1000 * 2 ** attempt + Math.random() * 400);
   }
   throw new Error(`${label}: ${lastErr}`);
+}
+
+/** GET a googlevideo link, following alr=yes redirect hops (see MAX_GV_HOPS). */
+async function fetchGoogleVideo(bridge, url, signal, label) {
+  let u = isQueryVideoplayback(url) ? withAlr(url) : url;
+  for (let hop = 0; hop <= MAX_GV_HOPS; hop++) {
+    const res = await fetchRetry(bridge, { url: u, method: "GET", headers: {} }, signal, label);
+    // Media never comes back as text/plain; a short text/plain body is the next hop's URL.
+    if (!/^text\/plain/i.test(headerOf(res, "content-type")) || res.buf.byteLength > 16384) return res;
+    const next = new TextDecoder().decode(res.buf).trim();
+    if (!isGoogleVideo(next)) throw new Error(`${label}: googlevideo sent an unexpected text reply`);
+    u = isQueryVideoplayback(next) ? withAlr(next) : next;
+  }
+  throw new Error(`${label}: too many googlevideo redirects`);
 }
 
 function totalSizeOf(fmt) {
@@ -63,11 +86,9 @@ async function downloadRanged(bridge, fmt, { onBytes, signal }) {
   const total = totalSizeOf(fmt);
 
   const getRange = async (start, end) => {
-    const req = gv
-      ? { url: `${url}&range=${start}-${end}`, method: "GET", headers }
-      : { url, method: "GET", headers: { ...headers, Range: `bytes=${start}-${end}` } };
-    const res = await fetchRetry(bridge, req, signal, `bytes ${start}-${end}`);
-    return res;
+    const label = `bytes ${start}-${end}`;
+    if (gv) return fetchGoogleVideo(bridge, `${url}&range=${start}-${end}`, signal, label);
+    return fetchRetry(bridge, { url, method: "GET", headers: { ...headers, Range: `bytes=${start}-${end}` } }, signal, label);
   };
 
   if (total) {
@@ -119,7 +140,10 @@ async function downloadFragments(bridge, fmt, { onBytes, signal }) {
   const worker = async () => {
     while (next < urls.length) {
       const i = next++;
-      const res = await fetchRetry(bridge, { url: urls[i], method: "GET", headers: cleanHeaders(fmt.http_headers) }, signal, `fragment ${i + 1}/${urls.length}`);
+      const label = `fragment ${i + 1}/${urls.length}`;
+      const res = isGoogleVideo(urls[i])
+        ? await fetchGoogleVideo(bridge, urls[i], signal, label)
+        : await fetchRetry(bridge, { url: urls[i], method: "GET", headers: cleanHeaders(fmt.http_headers) }, signal, label);
       parts[i] = res.buf;
       done++;
       onBytes(res.buf.byteLength, null, done / urls.length);
