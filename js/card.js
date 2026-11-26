@@ -58,10 +58,11 @@ const state = {
   chapters: prefs.chapters ?? true, subs: prefs.subs ?? false, sponsor: prefs.sponsor ?? false,
   ctrl: null, result: null, error: null,
   tipDismissed: prefs.tipDismissed ?? false,
+  vaCodec: prefs.vaCodec || null, vaRate: prefs.vaRate || "original",
 };
 const savePrefs = () => {
-  const { kind, container, aFormat, aChoice, thumb, square, meta, chapters, subs, sponsor, tipDismissed } = state;
-  try { localStorage.setItem(PREF_KEY, JSON.stringify({ kind, container, aFormat, aChoice, thumb, square, meta, chapters, subs, sponsor, tipDismissed })); } catch {}
+  const { kind, container, aFormat, aChoice, thumb, square, meta, chapters, subs, sponsor, tipDismissed, vaCodec, vaRate } = state;
+  try { localStorage.setItem(PREF_KEY, JSON.stringify({ kind, container, aFormat, aChoice, thumb, square, meta, chapters, subs, sponsor, tipDismissed, vaCodec, vaRate })); } catch {}
 };
 
 const inFrame = window.parent !== window;
@@ -211,8 +212,7 @@ function likelyPick(cands, container) {
 }
 function videoOptions(v) {
   const dur = v.duration || 0;
-  const a = bestAudio(v);
-  const aSize = a ? sizeOf(a, dur) : 0;
+  const aSize = trackInfo(v).size;
   const by = new Map();
   for (const f of v.formats) {
     if (!hasVideo(f) || !f.height || /storyboard/i.test(f.format_note || "")) continue;
@@ -227,6 +227,35 @@ function videoOptions(v) {
   return [...by.values()].sort((x, y) => y.height - x.height).map((g) => ({ ...g, total: g.size + aSize }));
 }
 const RES_TAG = { 4320: "8K", 2160: "4K", 1440: "2K", 1080: "FHD", 720: "HD" };
+
+// Audio track of a video download: the codecs each container can hold, and their bitrates.
+// "original" copies YouTube's stream untouched; a number re-encodes at that bitrate.
+const TRACK_CODECS = {
+  aac: { label: "AAC", rows: ["original", "256", "192", "128", "96"], match: /^mp4a/ },
+  opus: { label: "OPUS", rows: ["original", "160", "128", "96", "64"], match: /^opus/ },
+  mp3: { label: "MP3", rows: ["320", "256", "192", "128"] },
+  flac: { label: "FLAC", rows: ["lossless"] },
+};
+const TRACKS_FOR = { mp4: ["aac", "opus", "mp3"], mkv: ["aac", "opus", "mp3", "flac"], webm: ["opus"] };
+// What yt-dlp picks on its own: AAC for MP4, Opus for MKV and WebM.
+const TRACK_DEFAULT = { mp4: "aac", mkv: "opus", webm: "opus" };
+const trackCodec = () => (TRACKS_FOR[state.container].includes(state.vaCodec) ? state.vaCodec : TRACK_DEFAULT[state.container]);
+const trackRate = (codec = trackCodec()) => (TRACK_CODECS[codec].rows.includes(state.vaRate) ? state.vaRate : TRACK_CODECS[codec].rows[0]);
+function sourceTrack(v, codec) {
+  const m = TRACK_CODECS[codec]?.match;
+  const list = v.formats.filter((f) => hasAudio(f) && !hasVideo(f) && (!m || m.test(f.acodec || "")));
+  return list.sort((x, y) => (y.abr || y.tbr || 0) - (x.abr || x.tbr || 0))[0] || bestAudio(v);
+}
+function trackInfo(v, codec = trackCodec(), rate = trackRate(codec)) {
+  const dur = v?.duration || 0;
+  if (rate === "original") {
+    const s = v ? sourceTrack(v, codec) : null;
+    const kb = Math.round(s?.abr || s?.tbr || 0);
+    return { label: kb ? `${kb}k` : "original", kb, size: s ? sizeOf(s, dur) : 0 };
+  }
+  if (rate === "lossless") return { label: "lossless", size: 1500 * 125 * dur };  // FLAC of 48 kHz audio
+  return { label: `${rate}k`, kb: Number(rate), size: Number(rate) * 125 * dur };
+}
 
 const AUDIO_FMTS = {
   mp3: { label: "MP3", rows: ["320", "256", "192", "128", "96"] },
@@ -246,7 +275,7 @@ function audioRow(fmt, choice, v) {
     return { label: `${kb} kbps`, tag: "ORIGINAL", note: "Untouched stream", size: s ? sizeOf(s, dur) : (kb * 125 * dur) };
   }
   if (choice === "lossless") {
-    const kb = fmt === "wav" ? 1536 : 900;
+    const kb = fmt === "wav" ? 1536 : 1500;  // FLAC of 48 kHz audio runs ~1.5 Mbps
     return { label: "Lossless", tag: fmt === "wav" ? "PCM" : "24-BIT", note: `From the ${srcKbps} kbps source`, size: kb * 125 * dur };
   }
   return { label: `${choice} kbps`, tag: null, note: Number(choice) > srcKbps ? "Above source quality" : "", size: Number(choice) * 125 * dur };
@@ -351,6 +380,7 @@ function renderQuality() {
           o.hdr && !o.sdr ? h("span", { class: "badge hdr" }, "HDR") : null,
           i === 0 ? h("span", { class: "badge max" }, "MAX") : null),
         h("span", { class: "or" }, o.total ? `~${fmtBytes(o.total)}` : "", h("small", {}, [...o.codecs].filter(Boolean).join(" / ")))))));
+      kids.push(audioTrackPicker(v));
     }
   } else {
     kids.push(h("div", { class: "q" }, "Audio quality"));
@@ -372,6 +402,32 @@ function renderQuality() {
   }
   kids.push(h("div", { class: "actions" }, h("button", { class: "btn primary", disabled: !v, onclick: () => go("extras") }, "Continue", fa("arrow-right"))));
   view(...kids);
+}
+
+function audioTrackPicker(v) {
+  const codecs = TRACKS_FOR[state.container];
+  const cur = trackCodec(), rate = trackRate(cur);
+  const src = bestAudio(v);
+  const srcKb = Math.round(src?.abr || src?.tbr || 0);
+  const info = trackInfo(v, cur, rate);
+  let note;
+  if (rate === "original") note = "Copied straight from YouTube, no quality loss.";
+  else if (rate === "lossless") note = `Lossless FLAC from the ${srcKb || "source"} kbps stream. Bigger, not better.`;
+  // MP3 and AAC need more bits than YouTube's Opus source for the same quality.
+  else if (srcKb && info.kb > srcKb * ({ mp3: 1.6, aac: 1.3 }[cur] || 1) + 8) note = `Above what YouTube's ~${srcKb} kbps source holds, so it won't sound better.`;
+  else if (cur === "opus" && state.container === "mp4") note = "Opus in MP4 plays in browsers and VLC, not in QuickTime.";
+  else note = `Re-encoded from YouTube's ~${srcKb || 160} kbps stream.`;
+  return h("div", { class: "atrack" },
+    h("div", { class: "sub-q" }, fa("volume-high"), "Audio track", codecs.length === 1 ? h("span", {}, "WebM holds Opus only") : null),
+    codecs.length > 1 ? h("div", { class: "seg sm" }, codecs.map((c) =>
+      h("button", { class: cur === c ? "on" : "", onclick: () => { state.vaCodec = c; state.vaRate = TRACK_CODECS[c].rows[0]; savePrefs(); render(); } }, TRACK_CODECS[c].label))) : null,
+    h("div", { class: "chips" }, TRACK_CODECS[cur].rows.map((r) => {
+      const i = trackInfo(v, cur, r);
+      return h("button", { class: `chip${rate === r ? " on" : ""}`, onclick: () => { state.vaCodec = cur; state.vaRate = r; savePrefs(); render(); } },
+        h("b", {}, r === "original" ? "Original" : r === "lossless" ? "Lossless" : `${r}k`),
+        h("small", {}, r === "original" ? (i.kb ? `${i.kb}k` : "copy") : `~${fmtBytes(i.size)}`));
+    })),
+    h("div", { class: "a-note" }, note));
 }
 
 function skeleton() {
@@ -406,7 +462,10 @@ function renderExtras() {
 }
 
 function qualityLabel() {
-  if (state.kind === "video") return `${state.height}p · ${state.container.toUpperCase()}`;
+  if (state.kind === "video") {
+    const c = trackCodec();
+    return `${state.height}p · ${state.container.toUpperCase()} · ${TRACK_CODECS[c].label} ${trackInfo(state.video, c).label}`;
+  }
   const a = audioRow(state.aFormat, state.aChoice, state.video);
   return `${AUDIO_FMTS[state.aFormat].label} · ${a.label}`;
 }
@@ -446,7 +505,9 @@ function buildOptions() {
   };
   if (state.kind === "video") {
     const o = videoOptions(state.video).find((x) => x.height === state.height);
-    return { ...base, mode: "av", quality: String(state.height), container: state.container, vcodec: "any", fps: "any", hdr: !!(o && o.hdr && !o.sdr), recode: "none" };
+    const rate = trackRate();
+    return { ...base, mode: "av", quality: String(state.height), container: state.container, vcodec: "any", fps: "any", hdr: !!(o && o.hdr && !o.sdr), recode: "none",
+      videoAudioCodec: trackCodec(), videoAudioBitrate: rate === "original" ? "copy" : rate };
   }
   const f = state.aFormat, c = state.aChoice;
   if (c === "original") {

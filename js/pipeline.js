@@ -3,7 +3,7 @@
 // -> ffmpeg.wasm merge/convert/embed -> file(s) ready to save.
 import { downloadFormat, fetchSmall } from "./download.js";
 import * as FF from "./ffmpeg.js";
-import { AUDIO_FORMATS, outputExt, parseTime, toYtdlp, SB_CATEGORIES } from "./options.js";
+import { AUDIO_FORMATS, outputExt, parseTime, toYtdlp, videoAudioArgs, SB_CATEGORIES } from "./options.js";
 
 const VBR_KBPS = [256, 224, 192, 160, 128, 112, 96, 80, 64, 48];
 
@@ -366,7 +366,11 @@ export async function runJob(ctx) {
     else codecArgs.unshift("-c:v:0", "copy");
     if (aIdx != null) {
       const ac = (afmt.acodec || "").toLowerCase();
-      if (ext === "webm" && !/^(opus|vorbis)/.test(ac)) codecArgs.push("-c:a", "opus", "-b:a", "160k", "-ar", "48000");
+      const va = videoAudioArgs(o, ext);
+      if (va) {
+        if (va.warn) warn(va.warn);
+        codecArgs.push(...va.args);
+      } else if (ext === "webm" && !/^(opus|vorbis)/.test(ac)) codecArgs.push("-c:a", "opus", "-b:a", "160k", "-ar", "48000");
       else if ((ext === "mp4" || ext === "mov") && /^vorbis/.test(ac)) codecArgs.push("-c:a", "aac", "-b:a", "192k");
       else codecArgs.push("-c:a", "copy");
     }

@@ -10,6 +10,8 @@ export const DEFAULTS = {
   container: "mp4",           // mp4 | mkv | webm | mov
   recode: "none",             // none | h264
   audioLang: "",              // preferred audio track language (e.g. "en")
+  videoAudioCodec: "auto",    // audio track of a video: auto | aac | opus | mp3 | flac
+  videoAudioBitrate: "copy",  // copy (YouTube's stream, untouched) | kbps | lossless
 
   audioFormat: "mp3",         // best | mp3 | m4a | opus | ogg | flac | wav | alac
   audioBitrateMode: "cbr",    // cbr | vbr
@@ -106,10 +108,16 @@ export function toYtdlp(o) {
     if (o.fps !== "any") sort.push(`fps:${o.fps}`);
     if (!o.hdr) sort.push("hdr:sdr");
     if (o.vcodec !== "any") sort.push(`vcodec:${o.vcodec}`);
+    // Audio stream to fetch: the chosen codec when it's copied as-is, otherwise the best
+    // source (Opus, ~160 kbps) to re-encode from.
+    const vac = o.videoAudioCodec || "auto";
+    const copyA = (o.videoAudioBitrate || "copy") === "copy";
+    const aPref = vac === "auto" ? null : !copyA ? "acodec:opus" : vac === "aac" ? "acodec:aac" : vac === "opus" ? "acodec:opus" : null;
     if (o.container === "webm") sort.push("vext:webm", "aext:webm");
-    else if (o.container === "mp4" || o.container === "mov") {
-      if (o.vcodec === "any") sort.push("vext:mp4");
-      sort.push("aext:m4a");
+    else {
+      if ((o.container === "mp4" || o.container === "mov") && o.vcodec === "any") sort.push("vext:mp4");
+      if (aPref) sort.push(aPref);
+      else if (o.container === "mp4" || o.container === "mov") sort.push("aext:m4a");
     }
   }
   if (o.formatSort.trim()) sort.unshift(...o.formatSort.split(",").map((s) => s.trim()).filter(Boolean));
@@ -127,6 +135,23 @@ export function toYtdlp(o) {
     playlist: o.playlist,
     verbose: o.verbose,
   };
+}
+
+/** ffmpeg args for a video's re-encoded audio track, or null to keep YouTube's stream. */
+export function videoAudioArgs(o, ext) {
+  let c = o.videoAudioCodec, b = o.videoAudioBitrate;
+  if (!c || c === "auto" || !b || b === "copy") return null;
+  let warn = null;
+  if (ext === "webm" && c !== "opus") {
+    warn = "WebM only holds Opus audio; encoding Opus instead";
+    c = "opus";
+    if (!/^\d+$/.test(b) || Number(b) > 160) b = "160";
+  }
+  if (c === "flac" && ext !== "mkv") { warn = `${ext.toUpperCase()} can't hold FLAC; encoding AAC 256 kbps instead`; c = "aac"; b = "256"; }
+  if (c === "flac") return { args: ["-c:a", "flac"], warn };
+  const args = ["-c:a", AUDIO_FORMATS[c === "aac" ? "m4a" : c].codec, "-b:a", `${b}k`];
+  if (c === "opus") args.push("-ar", "48000");  // Opus is always 48 kHz
+  return { args, warn };
 }
 
 export function needsVideoDecode(o) {
